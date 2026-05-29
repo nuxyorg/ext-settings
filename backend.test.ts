@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
-import { register } from './backend.js'
+import { register } from './backend.ts'
+import type { CoreContext } from '@nuxy/extension-sdk'
+import type { NuxySettings } from './types.ts'
 
-const DEFAULT_SETTINGS = {
+const DEFAULT_SETTINGS: NuxySettings = {
   theme: 'dark',
   iconPack: '',
   zoom: '100%',
@@ -17,10 +19,13 @@ const DEFAULT_SETTINGS = {
   windowPosition: '1/2, 1/3',
 }
 
-function createCore(storageData = null) {
-  const handlers = {}
+function createCore(storageData: Partial<NuxySettings> | null | undefined = null): {
+  core: CoreContext
+  handlers: Record<string, (payload: unknown) => unknown>
+} {
+  const handlers: Record<string, (payload: unknown) => unknown> = {}
   const core = {
-    ipc: { handle: (ch, fn) => { handlers[ch] = fn } },
+    ipc: { handle: (ch: string, fn: (payload: unknown) => unknown) => { handlers[ch] = fn } },
     storage: {
       read: vi.fn().mockResolvedValue(storageData),
       write: vi.fn().mockResolvedValue(undefined),
@@ -30,8 +35,22 @@ function createCore(storageData = null) {
       registerTool: vi.fn(),
       registerProvider: vi.fn(),
       registerOrchestrator: vi.fn(),
+      registerTheme: vi.fn(),
+      registerIconPack: vi.fn(),
     },
-  }
+    clipboard: { readText: vi.fn(), writeText: vi.fn(), readImage: vi.fn(), writeImage: vi.fn(), writeFiles: vi.fn() },
+    fs: {
+      fileExists: vi.fn(), readDir: vi.fn(), readFile: vi.fn(), readFileBinary: vi.fn(),
+      writeFile: vi.fn(), mkdir: vi.fn(), rename: vi.fn(), rm: vi.fn(), stat: vi.fn(),
+      homedir: vi.fn().mockReturnValue('/home/user'), tmpdir: vi.fn().mockReturnValue('/tmp'),
+    },
+    db: { open: vi.fn() },
+    shell: { open: vi.fn(), exec: vi.fn(), spawn: vi.fn() },
+    media: { getNowPlaying: vi.fn() },
+    extensions: { invoke: vi.fn() },
+    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), silly: vi.fn() },
+    config: { get: vi.fn() },
+  } as unknown as CoreContext
   return { core, handlers }
 }
 
@@ -50,7 +69,7 @@ describe('settings backend', () => {
     it('getSettings returns exactly the expected default values when storage is empty', async () => {
       const { core, handlers } = createCore(null)
       register(core)
-      const result = await handlers.getSettings()
+      const result = await (handlers['getSettings'] as (p: unknown) => Promise<NuxySettings>)({})
       expect(result).toStrictEqual(DEFAULT_SETTINGS)
     })
   })
@@ -59,28 +78,28 @@ describe('settings backend', () => {
     it('returns all defaults when storage is empty', async () => {
       const { core, handlers } = createCore(null)
       register(core)
-      const result = await handlers.getSettings()
+      const result = await (handlers['getSettings'] as (p: unknown) => Promise<NuxySettings>)({})
       expect(result).toMatchObject(DEFAULT_SETTINGS)
     })
 
     it('returns all defaults when storage returns undefined', async () => {
       const { core, handlers } = createCore(undefined)
       register(core)
-      const result = await handlers.getSettings()
+      const result = await (handlers['getSettings'] as (p: unknown) => Promise<NuxySettings>)({})
       expect(result).toMatchObject(DEFAULT_SETTINGS)
     })
 
     it('merges stored theme over default', async () => {
       const { core, handlers } = createCore({ theme: 'light' })
       register(core)
-      const result = await handlers.getSettings()
+      const result = await (handlers['getSettings'] as (p: unknown) => Promise<NuxySettings>)({})
       expect(result.theme).toBe('light')
     })
 
     it('preserves defaults for keys not in storage', async () => {
       const { core, handlers } = createCore({ theme: 'ocean' })
       register(core)
-      const result = await handlers.getSettings()
+      const result = await (handlers['getSettings'] as (p: unknown) => Promise<NuxySettings>)({})
       expect(result.font).toBe('system')
       expect(result.escAction).toBe('hide')
       expect(result.windowWidth).toBe(800)
@@ -89,7 +108,7 @@ describe('settings backend', () => {
     it('merges stored boolean field (alwaysOnTop: true) over default false', async () => {
       const { core, handlers } = createCore({ alwaysOnTop: true })
       register(core)
-      const result = await handlers.getSettings()
+      const result = await (handlers['getSettings'] as (p: unknown) => Promise<NuxySettings>)({})
       expect(result.alwaysOnTop).toBe(true)
       // other boolean defaults remain untouched
       expect(result.showInTaskbar).toBe(false)
@@ -99,7 +118,7 @@ describe('settings backend', () => {
     it('applies multiple stored overrides', async () => {
       const { core, handlers } = createCore({ theme: 'light', zoom: '120%', windowWidth: 1000 })
       register(core)
-      const result = await handlers.getSettings()
+      const result = await (handlers['getSettings'] as (p: unknown) => Promise<NuxySettings>)({})
       expect(result.theme).toBe('light')
       expect(result.zoom).toBe('120%')
       expect(result.windowWidth).toBe(1000)
@@ -108,7 +127,7 @@ describe('settings backend', () => {
     it('contains every default key in the result', async () => {
       const { core, handlers } = createCore()
       register(core)
-      const result = await handlers.getSettings()
+      const result = await (handlers['getSettings'] as (p: unknown) => Promise<NuxySettings>)({})
       for (const key of Object.keys(DEFAULT_SETTINGS)) {
         expect(result).toHaveProperty(key)
       }
@@ -117,9 +136,9 @@ describe('settings backend', () => {
     it('reads from storage on each call', async () => {
       const { core, handlers } = createCore()
       register(core)
-      await handlers.getSettings()
-      await handlers.getSettings()
-      expect(core.storage.read).toHaveBeenCalledTimes(2)
+      await (handlers['getSettings'] as (p: unknown) => Promise<NuxySettings>)({})
+      await (handlers['getSettings'] as (p: unknown) => Promise<NuxySettings>)({})
+      expect((core.storage.read as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(2)
     })
   })
 
@@ -127,8 +146,8 @@ describe('settings backend', () => {
     it('writes to the correct file key "settings.json"', async () => {
       const { core, handlers } = createCore()
       register(core)
-      await handlers.saveSettings({ theme: 'ocean' })
-      expect(core.storage.write).toHaveBeenCalledWith(
+      await (handlers['saveSettings'] as (p: unknown) => Promise<NuxySettings>)({ theme: 'ocean' })
+      expect((core.storage.write as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(
         'settings.json',
         expect.any(Object)
       )
@@ -137,8 +156,8 @@ describe('settings backend', () => {
     it('writes the merged settings to storage', async () => {
       const { core, handlers } = createCore()
       register(core)
-      await handlers.saveSettings({ theme: 'ocean' })
-      expect(core.storage.write).toHaveBeenCalledWith(
+      await (handlers['saveSettings'] as (p: unknown) => Promise<NuxySettings>)({ theme: 'ocean' })
+      expect((core.storage.write as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(
         'settings.json',
         expect.objectContaining({ theme: 'ocean' })
       )
@@ -147,7 +166,7 @@ describe('settings backend', () => {
     it('returns the saved settings object', async () => {
       const { core, handlers } = createCore()
       register(core)
-      const result = await handlers.saveSettings({ theme: 'light', zoom: '80%' })
+      const result = await (handlers['saveSettings'] as (p: unknown) => Promise<NuxySettings>)({ theme: 'light', zoom: '80%' })
       expect(result.theme).toBe('light')
       expect(result.zoom).toBe('80%')
     })
@@ -155,7 +174,7 @@ describe('settings backend', () => {
     it('merges partial update with all defaults', async () => {
       const { core, handlers } = createCore()
       register(core)
-      const result = await handlers.saveSettings({ theme: 'ocean' })
+      const result = await (handlers['saveSettings'] as (p: unknown) => Promise<NuxySettings>)({ theme: 'ocean' })
       expect(result.font).toBe('system')
       expect(result.windowWidth).toBe(800)
     })
@@ -163,8 +182,9 @@ describe('settings backend', () => {
     it('writes full object with all default keys', async () => {
       const { core, handlers } = createCore()
       register(core)
-      await handlers.saveSettings({ theme: 'light' })
-      const [, written] = core.storage.write.mock.calls[0]
+      await (handlers['saveSettings'] as (p: unknown) => Promise<NuxySettings>)({ theme: 'light' })
+      const writeMock = core.storage.write as ReturnType<typeof vi.fn>
+      const [, written] = writeMock.mock.calls[0] as [string, NuxySettings]
       for (const key of Object.keys(DEFAULT_SETTINGS)) {
         expect(written).toHaveProperty(key)
       }
@@ -173,7 +193,7 @@ describe('settings backend', () => {
     it('handles empty payload (saves pure defaults)', async () => {
       const { core, handlers } = createCore()
       register(core)
-      const result = await handlers.saveSettings({})
+      const result = await (handlers['saveSettings'] as (p: unknown) => Promise<NuxySettings>)({})
       expect(result).toMatchObject(DEFAULT_SETTINGS)
     })
 
@@ -184,9 +204,10 @@ describe('settings backend', () => {
       // that adds allowlist filtering is caught as a deliberate breaking change.
       const { core, handlers } = createCore()
       register(core)
-      const result = await handlers.saveSettings({ theme: 'light', unknownKey: 'surprise' })
+      const result = await (handlers['saveSettings'] as (p: unknown) => Promise<NuxySettings>)({ theme: 'light', unknownKey: 'surprise' })
       expect(result).toHaveProperty('unknownKey', 'surprise')
-      const [, written] = core.storage.write.mock.calls[0]
+      const writeMock = core.storage.write as ReturnType<typeof vi.fn>
+      const [, written] = writeMock.mock.calls[0] as [string, NuxySettings]
       expect(written).toHaveProperty('unknownKey', 'surprise')
     })
 
@@ -196,9 +217,10 @@ describe('settings backend', () => {
       // validation is added in the future.
       const { core, handlers } = createCore()
       register(core)
-      const result = await handlers.saveSettings({ windowWidth: 'not-a-number' })
+      const result = await (handlers['saveSettings'] as (p: unknown) => Promise<NuxySettings>)({ windowWidth: 'not-a-number' })
       expect(result.windowWidth).toBe('not-a-number')
-      const [, written] = core.storage.write.mock.calls[0]
+      const writeMock = core.storage.write as ReturnType<typeof vi.fn>
+      const [, written] = writeMock.mock.calls[0] as [string, NuxySettings]
       expect(written.windowWidth).toBe('not-a-number')
     })
   })
@@ -206,22 +228,22 @@ describe('settings backend', () => {
   // Integration: full save → reload round-trip
   describe('e2e: settings lifecycle', () => {
     it('saved settings are returned by getSettings on next call', async () => {
-      let stored = null
-      const handlers = {}
+      let stored: NuxySettings | null = null
+      const handlers: Record<string, (payload: unknown) => unknown> = {}
       const core = {
-        ipc: { handle: (ch, fn) => { handlers[ch] = fn } },
+        ipc: { handle: (ch: string, fn: (payload: unknown) => unknown) => { handlers[ch] = fn } },
         storage: {
           read: vi.fn().mockImplementation(() => Promise.resolve(stored)),
-          write: vi.fn().mockImplementation((_, data) => {
+          write: vi.fn().mockImplementation((_: string, data: NuxySettings) => {
             stored = data
             return Promise.resolve()
           }),
         },
-      }
+      } as unknown as CoreContext
       register(core)
 
-      await handlers.saveSettings({ theme: 'ocean', zoom: '120%', windowWidth: 900 })
-      const result = await handlers.getSettings()
+      await (handlers['saveSettings'] as (p: unknown) => Promise<NuxySettings>)({ theme: 'ocean', zoom: '120%', windowWidth: 900 })
+      const result = await (handlers['getSettings'] as (p: unknown) => Promise<NuxySettings>)({})
 
       expect(result.theme).toBe('ocean')
       expect(result.zoom).toBe('120%')
@@ -237,24 +259,24 @@ describe('settings backend', () => {
       //   save({ theme: 'ocean' })  → stored = { ...DEFAULT, theme: 'ocean' }
       //   save({ zoom: '150%' })    → stored = { ...DEFAULT, zoom: '150%' }
       //                              ↑ theme is reset to 'dark' here
-      let stored = null
-      const handlers = {}
+      let stored: NuxySettings | null = null
+      const handlers: Record<string, (payload: unknown) => unknown> = {}
       const core = {
-        ipc: { handle: (ch, fn) => { handlers[ch] = fn } },
+        ipc: { handle: (ch: string, fn: (payload: unknown) => unknown) => { handlers[ch] = fn } },
         storage: {
           read: vi.fn().mockImplementation(() => Promise.resolve(stored)),
-          write: vi.fn().mockImplementation((_, data) => {
+          write: vi.fn().mockImplementation((_: string, data: NuxySettings) => {
             stored = data
             return Promise.resolve()
           }),
         },
-      }
+      } as unknown as CoreContext
       register(core)
 
-      await handlers.saveSettings({ theme: 'ocean' })
-      await handlers.saveSettings({ zoom: '150%' })
+      await (handlers['saveSettings'] as (p: unknown) => Promise<NuxySettings>)({ theme: 'ocean' })
+      await (handlers['saveSettings'] as (p: unknown) => Promise<NuxySettings>)({ zoom: '150%' })
 
-      const result = await handlers.getSettings()
+      const result = await (handlers['getSettings'] as (p: unknown) => Promise<NuxySettings>)({})
       expect(result.zoom).toBe('150%')
       // theme was NOT carried over — saveSettings merges with DEFAULT, not the
       // prior persisted state

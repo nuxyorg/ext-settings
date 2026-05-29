@@ -1,11 +1,49 @@
 const React = window.React
 const { useState, useEffect, useRef, useMemo } = React
 
+import type { NuxySettings } from './types.ts'
+
 const _useTwoPanelNav = (window.UI || {}).useTwoPanelNav || null
 
 const EXT_ID = 'com.nuxy.settings'
 
-const ZOOM_OPTIONS = [
+interface SelectOption<T = unknown> {
+  value: T
+  label: string
+}
+
+interface SectionRow {
+  key: keyof NuxySettings
+  label: string
+  options: SelectOption[]
+  searchable?: boolean
+}
+
+interface SectionDef {
+  id: string
+  label: string
+  rows: (
+    themes: SelectOption[],
+    iconPacks: SelectOption[],
+    fontOptions: SelectOption[]
+  ) => SectionRow[]
+}
+
+interface ResolvedSection extends SectionDef {
+  resolvedRows: SectionRow[]
+}
+
+interface NavSection {
+  id: string
+  label: string
+  itemCount: number
+}
+
+interface Props {
+  query: string
+}
+
+const ZOOM_OPTIONS: SelectOption<string>[] = [
   { value: '75%', label: '75%' },
   { value: '90%', label: '90%' },
   { value: '100%', label: '100%' },
@@ -14,19 +52,19 @@ const ZOOM_OPTIONS = [
   { value: '150%', label: '150%' },
 ]
 
-const FONT_OPTIONS_STATIC = [
+const FONT_OPTIONS_STATIC: SelectOption<string>[] = [
   { value: 'system', label: 'System Default' },
   { value: 'monospace', label: 'Monospace' },
 ]
 
-const ESC_ACTION_OPTIONS = [
+const ESC_ACTION_OPTIONS: SelectOption<string>[] = [
   { value: 'hide', label: 'Hide' },
   { value: 'minimize', label: 'Minimize' },
   { value: 'quit', label: 'Quit' },
   { value: 'none', label: 'Do Nothing' },
 ]
 
-const WINDOW_WIDTH_OPTIONS = [
+const WINDOW_WIDTH_OPTIONS: SelectOption<number>[] = [
   { value: 600, label: '600px' },
   { value: 700, label: '700px' },
   { value: 800, label: '800px' },
@@ -35,7 +73,7 @@ const WINDOW_WIDTH_OPTIONS = [
   { value: 1200, label: '1200px' },
 ]
 
-const WINDOW_MAX_HEIGHT_OPTIONS = [
+const WINDOW_MAX_HEIGHT_OPTIONS: SelectOption<number>[] = [
   { value: 400, label: '400px' },
   { value: 500, label: '500px' },
   { value: 600, label: '600px' },
@@ -43,20 +81,33 @@ const WINDOW_MAX_HEIGHT_OPTIONS = [
   { value: 800, label: '800px' },
 ]
 
-const OPACITY_OPTIONS = [
+const WINDOW_POSITION_OPTIONS: SelectOption<string>[] = [
+  { value: '1/2, 1/6', label: '↑  Top Center' },
+  { value: '1/6, 1/2', label: '←  Left Center' },
+  { value: '1/2, 1/2', label: '⊙  Screen Center' },
+  { value: '5/6, 1/2', label: '→  Right Center' },
+  { value: '1/2, 5/6', label: '↓  Bottom Center' },
+  { value: '1/6, 1/6', label: '↖  Top Left' },
+  { value: '5/6, 1/6', label: '↗  Top Right' },
+  { value: '1/6, 5/6', label: '↙  Bottom Left' },
+  { value: '5/6, 5/6', label: '↘  Bottom Right' },
+  { value: '1/2, 1/3', label: '◎  Upper Center (default)' },
+]
+
+const OPACITY_OPTIONS: SelectOption<number>[] = [
   { value: 0.7, label: '70%' },
   { value: 0.8, label: '80%' },
   { value: 0.9, label: '90%' },
   { value: 1, label: '100%' },
 ]
 
-const BOOL_OPTIONS = [
+const BOOL_OPTIONS: SelectOption<boolean>[] = [
   { value: true, label: 'Yes' },
   { value: false, label: 'No' },
 ]
 
-function buildFontFamilyMap(systemFonts) {
-  const base = {
+function buildFontFamilyMap(systemFonts: string[]): Record<string, string> {
+  const base: Record<string, string> = {
     system: `-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`,
     monospace: 'monospace',
   }
@@ -66,12 +117,12 @@ function buildFontFamilyMap(systemFonts) {
   return base
 }
 
-function buildFontOptions(systemFonts) {
+function buildFontOptions(systemFonts: string[]): SelectOption<string>[] {
   const extras = systemFonts.map((name) => ({ value: name, label: name }))
   return [...FONT_OPTIONS_STATIC, ...extras]
 }
 
-const DEFAULT_SETTINGS = {
+const DEFAULT_SETTINGS: NuxySettings = {
   theme: 'dark',
   iconPack: '',
   zoom: '100%',
@@ -87,7 +138,7 @@ const DEFAULT_SETTINGS = {
   windowPosition: '1/2, 1/3',
 }
 
-const SECTIONS = [
+const SECTIONS: SectionDef[] = [
   {
     id: 'general',
     label: 'General',
@@ -106,6 +157,7 @@ const SECTIONS = [
       { key: 'blurAction', label: 'Focus-Out Action', options: ESC_ACTION_OPTIONS },
       { key: 'windowWidth', label: 'Window Width', options: WINDOW_WIDTH_OPTIONS },
       { key: 'windowMaxHeight', label: 'Max Height', options: WINDOW_MAX_HEIGHT_OPTIONS },
+      { key: 'windowPosition', label: 'Launch Position', options: WINDOW_POSITION_OPTIONS },
       { key: 'opacity', label: 'Opacity', options: OPACITY_OPTIONS },
       { key: 'alwaysOnTop', label: 'Always on Top', options: BOOL_OPTIONS },
       { key: 'showInTaskbar', label: 'Show in Taskbar', options: BOOL_OPTIONS },
@@ -114,7 +166,7 @@ const SECTIONS = [
   },
 ]
 
-export default function SettingsView() {
+export default function SettingsView({ query: _query }: Props) {
   const {
     List,
     ListItem,
@@ -127,36 +179,44 @@ export default function SettingsView() {
     SectionHeader,
   } = window.UI || {}
 
-  const [themes, setThemes] = useState([])
-  const [iconPacks, setIconPacks] = useState([])
-  const [systemFonts, setSystemFonts] = useState([])
-  const [settings, setSettings] = useState(DEFAULT_SETTINGS)
-  const [selectedRow, setSelectedRow] = useState(0)
-  const [activeSelect, setActiveSelect] = useState(null)
-  const [selectFocused, setSelectFocused] = useState(0)
+  const [themes, setThemes] = useState<SelectOption[]>([])
+  const [iconPacks, setIconPacks] = useState<SelectOption[]>([])
+  const [systemFonts, setSystemFonts] = useState<string[]>([])
+  const [settings, setSettings] = useState<NuxySettings>(DEFAULT_SETTINGS)
+  const [selectedRow, setSelectedRow] = useState<number>(0)
+  const [activeSelect, setActiveSelect] = useState<string | null>(null)
+  const [selectFocused, setSelectFocused] = useState<number>(0)
 
   const fontFamilyMap = buildFontFamilyMap(systemFonts)
   const fontOptions = buildFontOptions(systemFonts)
 
   // Scroll refs
-  const rightPanelRef = useRef(null)
-  const sectionRefs = useRef({})
+  const rightPanelRef = useRef<HTMLDivElement | null>(null)
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   // Resolve rows per section
-  const allSections = useMemo(
+  const allSections = useMemo<ResolvedSection[]>(
     () => SECTIONS.map((s) => ({ ...s, resolvedRows: s.rows(themes, iconPacks, fontOptions) })),
     [themes, iconPacks, fontOptions]
   )
 
-  const allRows = useMemo(() => allSections.flatMap((s) => s.resolvedRows), [allSections])
+  const allRows = useMemo<SectionRow[]>(() => allSections.flatMap((s) => s.resolvedRows), [allSections])
 
   // useTwoPanelNav — shared UIkit hook
-  const navSections = useMemo(
+  const navSections = useMemo<NavSection[]>(
     () => allSections.map((s) => ({ id: s.id, label: s.label, itemCount: s.resolvedRows.length })),
     [allSections]
   )
 
-  const stateRef = useRef({})
+  interface StateSnapshot {
+    settings: NuxySettings
+    selectedRow: number
+    activeSelect: string | null
+    selectFocused: number
+    allRows: SectionRow[]
+  }
+
+  const stateRef = useRef<StateSnapshot>({} as StateSnapshot)
   stateRef.current = { settings, selectedRow, activeSelect, selectFocused, allRows }
 
   // Right-panel Up/Down/Enter actions (passed into the hook)
@@ -168,9 +228,9 @@ export default function SettingsView() {
       handler: () => {
         const { activeSelect } = stateRef.current
         if (activeSelect !== null) {
-          setSelectFocused((i) => Math.max(i - 1, 0))
+          setSelectFocused((i: number) => Math.max(i - 1, 0))
         } else {
-          setSelectedRow((i) => Math.max(i - 1, 0))
+          setSelectedRow((i: number) => Math.max(i - 1, 0))
         }
       },
     },
@@ -181,9 +241,9 @@ export default function SettingsView() {
         const { activeSelect, allRows } = stateRef.current
         if (activeSelect !== null) {
           const row = allRows.find((r) => r.key === activeSelect)
-          if (row) setSelectFocused((i) => Math.min(i + 1, row.options.length - 1))
+          if (row) setSelectFocused((i: number) => Math.min(i + 1, row.options.length - 1))
         } else {
-          setSelectedRow((i) => Math.min(i + 1, allRows.length - 1))
+          setSelectedRow((i: number) => Math.min(i + 1, allRows.length - 1))
         }
       },
     },
@@ -197,7 +257,7 @@ export default function SettingsView() {
           const row = allRows.find((r) => r.key === activeSelect)
           if (row) {
             const opt = row.options[selectFocused]
-            if (opt) updateSetting(activeSelect, opt.value)
+            if (opt) updateSetting(activeSelect as keyof NuxySettings, opt.value)
             else setActiveSelect(null)
           }
         } else {
@@ -226,13 +286,13 @@ export default function SettingsView() {
         sections: navSections,
         selectOpen: activeSelect !== null,
         initialFocusArea: 'left',
-        onSectionChange: (id) => {
+        onSectionChange: (id: string) => {
           const el = sectionRefs.current[id]
           if (el && rightPanelRef.current) {
             el.scrollIntoView({ behavior: 'smooth', block: 'start' })
           }
         },
-        onFocusRight: (id) => {
+        onFocusRight: (id: string) => {
           const startIdx = nav?.sectionStartIndex[id] ?? 0
           setSelectedRow(startIdx)
           setActiveSelect(null)
@@ -241,16 +301,17 @@ export default function SettingsView() {
       })
     : null
 
-  const focusArea = nav?.focusArea ?? 'right'
-  const activeSectionId = nav?.activeSectionId ?? SECTIONS[0].id
+  const focusArea: string = nav?.focusArea ?? 'right'
+  const activeSectionId: string = nav?.activeSectionId ?? SECTIONS[0].id
 
-  const applyTheme = (name) => {
+  const applyTheme = (name: string): void => {
     if (!name || !window.core?.ipc?.invoke) return
     window.core.ipc
       .invoke('kernel', 'getThemeByName', { name })
       .then((res) => {
-        if (!res?.success || !res.data) return
-        const { colors, tokens } = res.data
+        const r = res as { success: boolean; data?: { colors?: Record<string, string>; tokens?: Record<string, string> } }
+        if (!r?.success || !r.data) return
+        const { colors, tokens } = r.data
         const root = document.documentElement
         if (colors) Object.entries(colors).forEach(([k, v]) => root.style.setProperty(`--${k}`, v))
         if (tokens) Object.entries(tokens).forEach(([k, v]) => root.style.setProperty(`--${k}`, v))
@@ -258,19 +319,18 @@ export default function SettingsView() {
       .catch(console.error)
   }
 
-  const applySettings = (s) => {
+  const applySettings = (s: NuxySettings): void => {
     if (s.zoom) document.documentElement.style.zoom = s.zoom
-    if (s.font) document.body.style.fontFamily = fontFamilyMap[s.font] || s.font
-    if (s.theme) applyTheme(s.theme)
+    if (s.font) document.body.style.fontFamily = fontFamilyMap[s.font] || String(s.font)
+    if (s.theme) applyTheme(String(s.theme))
   }
 
-  const updateSetting = (key, value) => {
-    const next = { ...stateRef.current.settings, [key]: value }
+  const updateSetting = (key: keyof NuxySettings, value: unknown): void => {
+    const next: NuxySettings = { ...stateRef.current.settings, [key]: value }
     setSettings(next)
     applySettings(next)
     setActiveSelect(null)
 
-    console.log('[Settings] dispatching nuxy-settings-updated', next)
     window.dispatchEvent(new CustomEvent('nuxy-settings-updated', { detail: next }))
 
     if (!window.core?.ipc?.invoke) return
@@ -288,8 +348,9 @@ export default function SettingsView() {
     window.core.themes
       ?.list()
       .then((res) => {
-        if (res?.success && Array.isArray(res.data)) {
-          setThemes(res.data.map((name) => ({ value: name, label: name })))
+        const r = res as { success: boolean; data?: unknown[] }
+        if (r?.success && Array.isArray(r.data)) {
+          setThemes(r.data.map((name) => ({ value: name as string, label: name as string })))
         }
       })
       .catch(console.error)
@@ -297,8 +358,9 @@ export default function SettingsView() {
     window.core.icons
       ?.listPacks()
       .then((res) => {
-        if (res?.success && Array.isArray(res.data)) {
-          setIconPacks(res.data.map((name) => ({ value: name, label: name })))
+        const r = res as { success: boolean; data?: unknown[] }
+        if (r?.success && Array.isArray(r.data)) {
+          setIconPacks(r.data.map((name) => ({ value: name as string, label: name as string })))
         }
       })
       .catch(console.error)
@@ -306,8 +368,9 @@ export default function SettingsView() {
     window.core?.ipc
       ?.invoke('kernel', 'listSystemFonts', {})
       .then((res) => {
-        if (res?.success && Array.isArray(res.data)) {
-          setSystemFonts(res.data)
+        const r = res as { success: boolean; data?: unknown[] }
+        if (r?.success && Array.isArray(r.data)) {
+          setSystemFonts(r.data as string[])
         }
       })
       .catch(console.error)
@@ -315,9 +378,10 @@ export default function SettingsView() {
     window.core.ipc
       .invoke(EXT_ID, 'getSettings', {})
       .then((res) => {
-        if (res?.success && res.data) {
-          setSettings(res.data)
-          applySettings(res.data)
+        const r = res as { success: boolean; data?: NuxySettings }
+        if (r?.success && r.data) {
+          setSettings(r.data)
+          applySettings(r.data)
         }
       })
       .catch(console.error)
@@ -331,7 +395,7 @@ export default function SettingsView() {
       active={activeSectionId}
       orientation="vertical"
       style={{ borderRight: 'none', height: '100%' }}
-      onChange={(id) => {
+      onChange={(id: string) => {
         // Jump to the first row of that section
         const startIdx = nav?.sectionStartIndex[id] ?? 0
         setSelectedRow(startIdx)
@@ -349,7 +413,7 @@ export default function SettingsView() {
           const sectionOffset = globalRowOffset
           globalRowOffset += section.resolvedRows.length
           return (
-            <div key={section.id} ref={(el) => (sectionRefs.current[section.id] = el)} style={{ marginBottom: 8 }}>
+            <div key={section.id} ref={(el: HTMLDivElement | null) => (sectionRefs.current[section.id] = el)} style={{ marginBottom: 8 }}>
               {SectionHeader ? (
                 <SectionHeader label={section.label} />
               ) : (
@@ -386,9 +450,9 @@ export default function SettingsView() {
                                 focusedIndex={selectFocused}
                                 placeholder={row.options.length === 0 ? '(none)' : '—'}
                                 searchable={row.searchable || false}
-                                onSelect={(v) => updateSetting(row.key, v)}
+                                onSelect={(v: unknown) => updateSetting(row.key, v)}
                                 onClose={() => setActiveSelect(null)}
-                                onOpen={(idx) => {
+                                onOpen={(idx: number) => {
                                   setSelectedRow(globalIdx)
                                   nav?.onItemSelected(globalIdx)
                                   setSelectFocused(idx)
