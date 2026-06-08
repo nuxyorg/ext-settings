@@ -1,39 +1,17 @@
-import type { NuxySettings, AnyRow } from '../types.ts'
+import type { NuxySettings, AnyRow } from './types.ts'
 
 const EXT_ID = 'com.nuxy.settings'
 
-export interface SettingsActionsParams {
-  settings: NuxySettings
-  extValues: Record<string, Record<string, unknown>>
-  fontFamilyMap: Record<string, string>
-  setSettings: React.Dispatch<React.SetStateAction<NuxySettings>>
-  setExtValues: React.Dispatch<React.SetStateAction<Record<string, Record<string, unknown>>>>
-  setActiveSelect: React.Dispatch<React.SetStateAction<string | null>>
+export interface SettingsActionsContext {
+  getSettings: () => NuxySettings
+  getExtValues: () => Record<string, Record<string, unknown>>
+  getFontFamilyMap: () => Record<string, string>
+  setSettings: (next: NuxySettings) => void
+  patchExtValues: (extId: string, values: Record<string, unknown>) => void
+  setActiveSelect: (key: string | null) => void
 }
 
-export interface SettingsActions {
-  applySettings: (s: NuxySettings) => void
-  updateSetting: (key: keyof NuxySettings, value: unknown) => void
-  addLanguage: (code: string) => void
-  removeLanguage: (code: string) => void
-  updateExtSetting: (extId: string, key: string, value: unknown) => void
-  toggleExtension: (extId: string, enabled: boolean) => void
-  /** Route a SelectBox onSelect to the correct update function for any row type. */
-  handleRowSelect: (row: AnyRow, value: unknown) => void
-  /** Handle live text/color input change for extension input rows. */
-  handleExtInputChange: (row: AnyRow, value: string) => void
-  /** Persist extension input field value on blur. */
-  handleExtInputBlur: (row: AnyRow, value: string) => void
-}
-
-export function useSettingsActions({
-  settings,
-  extValues,
-  fontFamilyMap,
-  setSettings,
-  setExtValues,
-  setActiveSelect,
-}: SettingsActionsParams): SettingsActions {
+export function createSettingsActions(ctx: SettingsActionsContext) {
   const applyTheme = (name: string): void => {
     if (!name || !window.core?.ipc?.invoke) return
     window.core.ipc
@@ -54,25 +32,25 @@ export function useSettingsActions({
 
   const applySettings = (s: NuxySettings): void => {
     if (s.zoom) document.documentElement.style.zoom = s.zoom
-    if (s.font) document.body.style.fontFamily = fontFamilyMap[s.font] || String(s.font)
+    if (s.font) {
+      document.body.style.fontFamily = ctx.getFontFamilyMap()[s.font] || String(s.font)
+    }
+    if (s.fontWeight) document.body.style.fontWeight = String(s.fontWeight)
     if (s.theme) applyTheme(String(s.theme))
   }
 
   const updateSetting = (key: keyof NuxySettings, value: unknown): void => {
+    const settings = ctx.getSettings()
     const next: NuxySettings = { ...settings, [key]: value }
-    setSettings(next)
+    ctx.setSettings(next)
     applySettings(next)
-    setActiveSelect(null)
-
-    window.dispatchEvent(new CustomEvent('nuxy-settings-updated', { detail: next }))
-
+    ctx.setActiveSelect(null)
+    window.core?.events?.emit('settings-updated', next as Record<string, unknown>)
     if (!window.core?.ipc?.invoke) return
     window.core.ipc
       .invoke(EXT_ID, 'saveSettings', next)
       .then(() => {
-        if (key === 'preferredLanguages') {
-          window.dispatchEvent(new CustomEvent('nuxy-locale-changed'))
-        }
+        if (key === 'preferredLanguages') window.core?.events?.emit('locale-changed')
         window.core.ipc.invoke('kernel', 'applyWindowSettings', next).catch(() => {})
       })
       .catch(() => {})
@@ -80,12 +58,14 @@ export function useSettingsActions({
 
   const addLanguage = (code: string): void => {
     if (!code) return
+    const settings = ctx.getSettings()
     const current = (settings.preferredLanguages || []).filter(Boolean)
     if (current.includes(code)) return
     updateSetting('preferredLanguages', [...current, code])
   }
 
   const removeLanguage = (code: string): void => {
+    const settings = ctx.getSettings()
     const current = (settings.preferredLanguages || []).filter(Boolean)
     updateSetting(
       'preferredLanguages',
@@ -94,17 +74,16 @@ export function useSettingsActions({
   }
 
   const updateExtSetting = (extId: string, key: string, value: unknown): void => {
+    const extValues = ctx.getExtValues()
     const next = { ...(extValues[extId] || {}), [key]: value }
-    setExtValues((prev) => ({ ...prev, [extId]: next }))
-    setActiveSelect(null)
+    ctx.patchExtValues(extId, next)
+    ctx.setActiveSelect(null)
     if (!window.core?.ipc?.invoke) return
-    window.core.ipc
-      .invoke(EXT_ID, 'saveExtensionSettingValues', { extId, values: next })
-      .catch(() => {})
+    window.core.ipc.invoke(EXT_ID, 'saveExtensionSettingValues', { extId, values: next }).catch(() => {})
   }
 
   const toggleExtension = (extId: string, enabled: boolean): void => {
-    setActiveSelect(null)
+    ctx.setActiveSelect(null)
     if (!window.core?.ipc?.invoke) return
     window.core.ipc.invoke('kernel', 'setExtensionEnabled', { extId, enabled }).catch(() => {})
   }
@@ -120,10 +99,8 @@ export function useSettingsActions({
 
   const handleExtInputChange = (row: AnyRow, value: string): void => {
     if (!row.isExtension) return
-    setExtValues((prev) => ({
-      ...prev,
-      [row.extId]: { ...(prev[row.extId] || {}), [row.fieldKey]: value },
-    }))
+    const extValues = ctx.getExtValues()
+    ctx.patchExtValues(row.extId, { ...(extValues[row.extId] || {}), [row.fieldKey]: value })
     if (row.type === 'color') updateExtSetting(row.extId, row.fieldKey, value)
   }
 
@@ -143,3 +120,5 @@ export function useSettingsActions({
     handleExtInputBlur,
   }
 }
+
+export type SettingsActions = ReturnType<typeof createSettingsActions>
