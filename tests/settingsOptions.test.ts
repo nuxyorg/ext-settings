@@ -7,7 +7,7 @@ import {
   DEFAULT_SETTINGS,
   BOOL_OPTIONS,
   ZOOM_OPTIONS,
-} from './settingsOptions.ts'
+} from '../utils/settingsOptions.ts'
 import type { AnyRow, NuxySettings } from '../types.ts'
 
 describe('buildFontFamilyMap', () => {
@@ -69,7 +69,6 @@ describe('getRowCurrentValue', () => {
       options: [],
       isExtension: false,
       isLanguage: true,
-      langIndex: 0,
       searchable: true,
     }
     expect(getRowCurrentValue(row, settings, extValues, installed)).toBe('')
@@ -82,7 +81,6 @@ describe('getRowCurrentValue', () => {
       options: [],
       isExtension: false,
       isLanguage: true,
-      langIndex: 5,
       searchable: true,
     }
     expect(getRowCurrentValue(row, settings, extValues, installed)).toBe('')

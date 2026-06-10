@@ -14,7 +14,7 @@ vi.hoisted(() => {
       ipc: { invoke: vi.fn().mockResolvedValue({ success: true, data: {} }) },
       themes: { list: vi.fn().mockResolvedValue({ success: true, data: [] }) },
       icons: { listPacks: vi.fn().mockResolvedValue({ success: true, data: [] }) },
-      shell: { registerKeyActions: vi.fn() },
+      shell: { registerKeyActions: vi.fn(), refreshKeyHints: vi.fn() },
       events: { on: vi.fn(() => () => {}), emit: vi.fn() },
     },
     UI: {},
@@ -30,6 +30,7 @@ vi.hoisted(() => {
     },
   }
   ;(globalThis as any).document = {
+    createTreeWalker: vi.fn(() => ({ nextNode: vi.fn() })),
     createTextNode(text: string) {
       return { nodeType: 3, textContent: text }
     },
@@ -61,8 +62,34 @@ vi.hoisted(() => {
   }
 })
 
+// Mock @nuxy/core package
+vi.mock('@nuxy/core', async () => {
+  const actual = await vi.importActual<typeof import('@nuxy/core')>('@nuxy/core')
+  return {
+    ...actual,
+    LitElement: class LitElementStub extends globalThis.HTMLElement {
+      requestUpdate = vi.fn()
+      updateComplete = Promise.resolve(true)
+      connectedCallback() {}
+      disconnectedCallback() {}
+    },
+    html: (strings: any, ...values: any[]) => strings,
+    css: (strings: any, ...values: any[]) => strings,
+    nothing: null,
+    customElement: (tag: string) => (ctor: any) => {
+      customElements.define(tag, ctor)
+      return ctor
+    },
+    property: () => () => {},
+    state: () => () => {},
+    query: () => () => {},
+    ref: (cb: any) => cb,
+    createRef: () => ({ current: null }),
+  }
+})
+
 import { resolveToolElementTag } from '@nuxy/core'
-import settingsManifest from './manifest.json'
+import settingsManifest from '../manifest.json'
 
 describe('settings tool element manifest', () => {
   it('declares nuxy-tool-settings tag', () => {
@@ -74,7 +101,7 @@ describe('nuxy-tool-settings element', () => {
   beforeEach(async () => {
     vi.resetModules()
     customElements.registry.clear()
-    await import('./nuxy-tool-settings.ts')
+    await import('../frontend.ts')
   })
 
   afterEach(() => {
@@ -87,27 +114,22 @@ describe('nuxy-tool-settings element', () => {
 
   it('renders native CE on connect', () => {
     const Ctor = customElements.get('nuxy-tool-settings')!
-    const el = new Ctor() as HTMLElement & {
-      query: string
-      committedQuery: string
-      extensionId: string
-    }
+    const el = new Ctor() as any
 
     el.connectedCallback()
     el.extensionId = 'com.nuxy.settings'
     el.query = 'theme'
     el.committedQuery = 'theme dark'
 
-    expect(el.replaceChildren).toHaveBeenCalled()
     expect(el.extensionId).toBe('com.nuxy.settings')
+    expect(window.core.shell?.registerKeyActions).toHaveBeenCalled()
   })
 
   it('cleans up on disconnect', () => {
     const Ctor = customElements.get('nuxy-tool-settings')!
-    const el = new Ctor() as HTMLElement
+    const el = new Ctor() as any
     el.connectedCallback()
     el.disconnectedCallback()
-    expect(el.replaceChildren).toHaveBeenCalled()
-    expect(window.core.shell.registerKeyActions).toHaveBeenCalledWith(null)
+    expect(window.core.shell?.registerKeyActions).toHaveBeenCalledWith(null)
   })
 })

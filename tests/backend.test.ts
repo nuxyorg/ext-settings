@@ -1,14 +1,15 @@
 // fallow-ignore-file code-duplication
 import { describe, it, expect, vi } from 'vitest'
-import { register } from './backend.ts'
+import { register } from '../backend.ts'
 import { type CoreContext, createMockCore } from '@nuxy/extension-sdk'
-import type { NuxySettings } from './types.ts'
+import type { NuxySettings } from '../types.ts'
 
 const DEFAULT_SETTINGS: NuxySettings = {
   theme: 'dark',
   iconPack: '',
   zoom: '100%',
   font: 'system',
+  fontWeight: '400',
   escAction: 'hide',
   blurAction: 'hide',
   backgroundBehavior: 'reset-on-show',

@@ -14,7 +14,7 @@ import type {
   AnyRow,
   RenderSection,
 } from './types.ts'
-import type { InstalledExtension } from './settings-data.ts'
+import type { InstalledExtension } from './data.ts'
 import {
   BOOL_OPTIONS,
   SECTIONS,
@@ -35,6 +35,7 @@ export interface SettingsMeta {
   sectionsToRender: RenderSection[]
   allRows: AnyRow[]
   navSections: NavSection[]
+  sectionStartIndex: Record<string, number>
 }
 
 export interface ComputeSettingsMetaParams {
@@ -147,14 +148,16 @@ export function computeSettingsMeta(params: ComputeSettingsMetaParams): Settings
     searchable: true,
   }
 
-  const languageRemoveRows: LanguageRemoveRow[] = preferredLanguages.filter(Boolean).map((code) => ({
-    key: `lang:remove:${code}`,
-    label: LANGUAGE_OPTIONS.find((o) => o.value === code)?.label ?? code,
-    options: [],
-    isExtension: false as const,
-    isLanguageRemove: true as const,
-    langCode: code,
-  }))
+  const languageRemoveRows: LanguageRemoveRow[] = preferredLanguages
+    .filter(Boolean)
+    .map((code) => ({
+      key: `lang:remove:${code}`,
+      label: LANGUAGE_OPTIONS.find((o) => o.value === code)?.label ?? code,
+      options: [],
+      isExtension: false as const,
+      isLanguageRemove: true as const,
+      langCode: code,
+    }))
 
   const translatedBoolOptions = BOOL_OPTIONS.map((opt) => ({
     ...opt,
@@ -235,6 +238,13 @@ export function computeSettingsMeta(params: ComputeSettingsMetaParams): Settings
     return base
   })()
 
+  const sectionStartIndex: Record<string, number> = {}
+  let offset = 0
+  for (const s of navSections) {
+    sectionStartIndex[s.id] = offset
+    offset += s.itemCount
+  }
+
   return {
     fontFamilyMap,
     fontOptions,
@@ -244,5 +254,6 @@ export function computeSettingsMeta(params: ComputeSettingsMetaParams): Settings
     sectionsToRender,
     allRows,
     navSections,
+    sectionStartIndex,
   }
 }

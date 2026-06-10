@@ -1,6 +1,6 @@
 // fallow-ignore-file code-duplication
-import { test, expect, type Page } from '../../src/e2e/fixtures.js'
-import { openTool } from '../e2e-helpers.js'
+import { test, expect, type Page } from '../../../src/e2e/fixtures.js'
+import { openTool } from '../../e2e-helpers.js'
 
 async function openSettings(page: Page) {
   await openTool(page, 'settings')
@@ -104,7 +104,12 @@ test.describe('settings tool', () => {
     },
     { name: 'escAction', label: 'Esc Key Action', index: 4, getExpectedCount: async () => 4 },
     { name: 'blurAction', label: 'Focus-Out Action', index: 5, getExpectedCount: async () => 4 },
-    { name: 'backgroundBehavior', label: 'Background Behaviour', index: 6, getExpectedCount: async () => 2 },
+    {
+      name: 'backgroundBehavior',
+      label: 'Background Behaviour',
+      index: 6,
+      getExpectedCount: async () => 2,
+    },
     { name: 'windowWidth', label: 'Window Width', index: 7, getExpectedCount: async () => 6 },
     { name: 'windowMaxHeight', label: 'Max Height', index: 8, getExpectedCount: async () => 5 },
     {
@@ -630,7 +635,9 @@ test.describe('settings i18n', () => {
     })
 
     await openSettings(appPage)
-    await appPage.waitForFunction(() => document.body.innerText.includes('General'), { timeout: 2000 })
+    await appPage.waitForFunction(() => document.body.innerText.includes('General'), {
+      timeout: 2000,
+    })
 
     const body = await appPage.evaluate(() => document.body.innerText)
     // Should fall back to English (extension default)

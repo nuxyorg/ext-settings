@@ -79,7 +79,9 @@ export function createSettingsActions(ctx: SettingsActionsContext) {
     ctx.patchExtValues(extId, next)
     ctx.setActiveSelect(null)
     if (!window.core?.ipc?.invoke) return
-    window.core.ipc.invoke(EXT_ID, 'saveExtensionSettingValues', { extId, values: next }).catch(() => {})
+    window.core.ipc
+      .invoke(EXT_ID, 'saveExtensionSettingValues', { extId, values: next })
+      .catch(() => {})
   }
 
   const toggleExtension = (extId: string, enabled: boolean): void => {

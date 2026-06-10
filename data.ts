@@ -33,7 +33,9 @@ export function loadSettingsData(onPatch: (patch: SettingsDataPatch) => void): (
     .then((res) => {
       const r = res as { success: boolean; data?: unknown[] }
       if (r?.success && Array.isArray(r.data)) {
-        onPatch({ themes: r.data.map((name) => ({ value: name as string, label: name as string })) })
+        onPatch({
+          themes: r.data.map((name) => ({ value: name as string, label: name as string })),
+        })
       }
     })
     .catch(() => {})
@@ -43,7 +45,9 @@ export function loadSettingsData(onPatch: (patch: SettingsDataPatch) => void): (
     .then((res) => {
       const r = res as { success: boolean; data?: unknown[] }
       if (r?.success && Array.isArray(r.data)) {
-        onPatch({ iconPacks: r.data.map((name) => ({ value: name as string, label: name as string })) })
+        onPatch({
+          iconPacks: r.data.map((name) => ({ value: name as string, label: name as string })),
+        })
       }
     })
     .catch(() => {})
@@ -91,7 +95,9 @@ export function loadSettingsData(onPatch: (patch: SettingsDataPatch) => void): (
               .then((mRes) => {
                 const mr = mRes as { success: boolean; data?: string[] }
                 if (mr?.success && Array.isArray(mr.data) && mr.data.length > 0) {
-                  onPatch({ ollamaModelOptions: mr.data.map((name) => ({ value: name, label: name })) })
+                  onPatch({
+                    ollamaModelOptions: mr.data.map((name) => ({ value: name, label: name })),
+                  })
                 }
               })
               .catch(() => {})
