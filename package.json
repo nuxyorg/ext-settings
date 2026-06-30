@@ -11,6 +11,6 @@
     "lit": "^3.0.0"
   },
   "devDependencies": {
-    "@nuxyorg/ext-devserver": "workspace:*"
+    "@nuxyorg/ext-devserver": "^1.0.1"
   }
 }
